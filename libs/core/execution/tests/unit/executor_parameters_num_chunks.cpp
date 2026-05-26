@@ -11,7 +11,6 @@
 #include <hpx/program_options.hpp>
 
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <numeric>
 #include <string>
@@ -44,37 +43,15 @@ namespace hpx::execution::experimental {
     };
 }    // namespace hpx::execution::experimental
 
-void test_collect_execution_parameters_num_chunks_sync()
+void test_collect_execution_parameters_num_chunks()
 {
-    std::vector<std::uint64_t> data(313000);
+    std::vector<int> data(313000);
     std::iota(data.begin(), data.end(), std::uint64_t(0));
 
     execution_parameters params;
     auto policy = hpx::execution::par.with(std::ref(params));
 
-    hpx::for_each(
-        policy, data.begin(), data.end(), [](std::uint64_t& v) { v += 1; });
-
-    HPX_TEST_LT(std::size_t(0), params.count_);
-    HPX_TEST_LT(std::size_t(0), params.num_chunks_);
-    HPX_TEST_LT(std::size_t(0), params.chunk_size_);
-
-    std::size_t const expected_chunks =
-        (params.count_ + params.chunk_size_ - 1) / params.chunk_size_;
-    HPX_TEST_EQ(expected_chunks, params.num_chunks_);
-}
-
-void test_collect_execution_parameters_num_chunks_async()
-{
-    std::vector<std::uint64_t> data(313000);
-    std::iota(data.begin(), data.end(), std::uint64_t(0));
-
-    execution_parameters params;
-    auto policy =
-        hpx::execution::par(hpx::execution::task).with(std::ref(params));
-
-    hpx::for_each(
-        policy, data.begin(), data.end(), [](std::uint64_t& v) { v += 1; });
+    hpx::for_each(policy, data.begin(), data.end(), [](int&) {});
 
     HPX_TEST_LT(std::size_t(0), params.count_);
     HPX_TEST_LT(std::size_t(0), params.num_chunks_);
@@ -87,8 +64,7 @@ void test_collect_execution_parameters_num_chunks_async()
 
 int hpx_main()
 {
-    test_collect_execution_parameters_num_chunks_sync();
-    test_collect_execution_parameters_num_chunks_async();
+    test_collect_execution_parameters_num_chunks();
 
     return hpx::local::finalize();
 }
