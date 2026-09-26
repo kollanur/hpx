@@ -31,6 +31,7 @@
 #include <limits>
 #include <list>
 #include <memory>
+#include <numeric>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -64,7 +65,6 @@ namespace hpx::parallel::detail {
         return ready.get();
     }
 
-    // Handles: future<T>
     template <typename ExPolicy, typename T>
     HPX_FORCEINLINE hpx::future<T> handle_capture_exceptions(
         hpx::future<T>&& operation)
@@ -72,16 +72,6 @@ namespace hpx::parallel::detail {
         return HPX_MOVE(operation).then([](hpx::future<T> ready) -> T {
             return get_capture_result<ExPolicy>(HPX_MOVE(ready));
         });
-    }
-
-    // Handles: future<future<T>> created by a task-policy action
-    template <typename ExPolicy, typename T>
-    HPX_FORCEINLINE hpx::future<T> handle_capture_exceptions(
-        hpx::future<hpx::future<T>>&& operation)
-    {
-        hpx::future<T> flattened = HPX_MOVE(operation);
-
-        return handle_capture_exceptions<ExPolicy>(HPX_MOVE(flattened));
     }
 
     template <typename ExPolicy, typename T>
@@ -160,7 +150,7 @@ namespace hpx::parallel::detail {
 
         constexpr std::size_t count = max_capture_batch_bytes / element_bytes;
 
-        return count == 0 ? 1 : count;
+        return (std::max) (std::size_t(1), count);
     }
 
     template <typename LocalIterator>
@@ -262,15 +252,15 @@ namespace hpx::parallel::detail {
             result_type result;
             result.slices.reserve(ranges.size());
 
-            std::size_t total_size = 0;
+            std::size_t const total_size =
+                std::accumulate(ranges.begin(), ranges.end(), std::size_t{0},
+                    [](std::size_t size, auto const& indexed_range) {
+                        auto const& range = indexed_range.range;
 
-            for (auto const& indexed_range : ranges)
-            {
-                auto const& range = indexed_range.range;
-
-                total_size += static_cast<std::size_t>(
-                    std::distance(range.first, range.last));
-            }
+                        return size +
+                            static_cast<std::size_t>(
+                                std::distance(range.first, range.last));
+                    });
 
             result.values.reserve(total_size);
 
@@ -287,8 +277,8 @@ namespace hpx::parallel::detail {
 
                 std::size_t const size = result.values.size() - offset;
 
-                result.slices.emplace_back(collected_range_slice{
-                    indexed_range.original_index, offset, size});
+                result.slices.emplace_back(
+                    indexed_range.original_index, offset, size);
             }
             return result;
         }
@@ -453,8 +443,8 @@ namespace hpx::parallel::detail {
                                 local_iterator range_last) {
             if (range_first != range_last)
             {
-                ranges.emplace_back(range_type{traits::get_id(segment),
-                    HPX_MOVE(range_first), HPX_MOVE(range_last)});
+                ranges.emplace_back(traits::get_id(segment),
+                    HPX_MOVE(range_first), HPX_MOVE(range_last));
             }
         };
 
@@ -1171,7 +1161,7 @@ namespace hpx::parallel::detail {
 
             for (auto& chunk : chunks)
             {
-                auto& chunk_ranges = HPX_INVOKE(get_ranges, chunk);
+                auto&& chunk_ranges = HPX_INVOKE(get_ranges, chunk);
                 ranges.insert(ranges.end(),
                     std::make_move_iterator(chunk_ranges.begin()),
                     std::make_move_iterator(chunk_ranges.end()));
@@ -1389,8 +1379,10 @@ namespace hpx::parallel::detail {
             hpx::util::decay_unwrap_t<Args>...>
             act;
 
-        return handle_capture_exceptions<ExPolicy>(hpx::async(act,
+        hpx::future<batch_result_type> operation = hpx::async(act,
             hpx::colocated(routing_partition_id), HPX_FORWARD(Algo, algo),
-            HPX_MOVE(policy), HPX_MOVE(chunks), HPX_FORWARD(Args, args)...));
+            HPX_MOVE(policy), HPX_MOVE(chunks), HPX_FORWARD(Args, args)...);
+
+        return handle_capture_exceptions<ExPolicy>(HPX_MOVE(operation));
     }
 }    // namespace hpx::parallel::detail
